@@ -1,7 +1,7 @@
 import configparser
 
 config = configparser.ConfigParser()
-config.read('proxy2proxies.conf')
+config.read('config/proxy2proxies.conf')
 
 proxies = config.items('PROXY_LIST')
 

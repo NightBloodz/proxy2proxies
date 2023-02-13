@@ -1,6 +1,4 @@
-import config
 import socket, threading, struct, select, random
-
 
 
 class Proxy:
@@ -231,10 +229,5 @@ class Proxy:
 
 
             print("New connection with client: " + str(addr))
+   
 
-        
-        
-
-if __name__ == '__main__':
-    proxy = Proxy("0.0.0.0", 3000, config.proxies, config.chain_n, config.tor)
-    proxy.run()
