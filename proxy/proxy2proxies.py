@@ -34,25 +34,30 @@ class Proxy:
 
             
     def socks_negotiation(self, remote, target):
-                
-        #First negotiation_message
-        remote.sendall(b'\x05\x01\x00')
 
-        response = remote.recv(2)
-        if response != b'\x05\x00':
-            print("Negotiation with proxy failed")
+        try:
+            #First negotiation_message
+            remote.sendall(b'\x05\x01\x00')
+
+            response = remote.recv(2)
+            if response != b'\x05\x00':
+                print("Negotiation with proxy failed")
+                return "", remote
+
+            
+            addr = struct.unpack("!I", socket.inet_aton(target[0]))[0]
+            port = target[1]
+            
+            msg = struct.pack("!BBBBIH", self.version, 1, 0, 1, addr, port)
+            remote.sendall(msg)
+            
+            response = remote.recv(10)
+
+            return response, remote
+        
+        except (ConnectionRefusedError, ConnectionResetError, BrokenPipeError, TimeoutError, socket.timeout):
             return "", remote
 
-        
-        addr = struct.unpack("!I", socket.inet_aton(target[0]))[0]
-        port = target[1]
-        
-        msg = struct.pack("!BBBBIH", self.version, 1, 0, 1, addr, port)
-        remote.sendall(msg)
-        
-        response = remote.recv(10)
-
-        return response, remote
         
                  
 
