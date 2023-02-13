@@ -54,7 +54,7 @@ class Proxy:
         
                  
 
-    def chain_proxies(self, target):
+    def chain_proxies(self, target, client):
         
         
         chained = [] 
@@ -71,6 +71,7 @@ class Proxy:
 
             try:
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                remote.settimeout(15)
 
                  
                 if self.chain_n == 0:
@@ -110,7 +111,7 @@ class Proxy:
 
 
 
-            except (ConnectionRefusedError, ConnectionResetError, BrokenPipeError, TimeoutError):
+            except (ConnectionRefusedError, ConnectionResetError, BrokenPipeError, TimeoutError, socket.timeout):
                 chained = []
                 print("Connection with the first proxy ended.")
                 
@@ -174,7 +175,7 @@ class Proxy:
         if conn_type == 1: #Connect using TCP
             #Establish TCP connection with target through random selected chained proxies
             #Chain all the proxies and connect to the target
-            remote = self.chain_proxies(target)
+            remote = self.chain_proxies(target, client)
 
             #Store the status of the connection in a packet
             if remote:
@@ -209,12 +210,7 @@ class Proxy:
         client.close()
         print("Connection with client ended")
         
-        
-
-
-                
-
-
+                   
 
 
     def run(self):
@@ -231,7 +227,7 @@ class Proxy:
             #Pass the connection data to the handle_client function in a new thread to handle the client's connection
             c = threading.Thread(target=self.handle_client, args=(conn, addr))
             c.start()
-            #self.handle_client(conn, addr)
+            
 
 
             print("New connection with client: " + str(addr))
@@ -240,5 +236,5 @@ class Proxy:
         
 
 if __name__ == '__main__':
-    proxy = Proxy("0.0.0.0", 3000, config.proxies, chain_n=0, tor=False)
+    proxy = Proxy("0.0.0.0", 3000, config.proxies, config.chain_n, config.tor)
     proxy.run()
