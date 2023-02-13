@@ -1,12 +1,15 @@
-import socket, threading, struct, select
+import config
+import socket, threading, struct, select, random
+
 
 
 class Proxy:
 
-    def __init__(self, host, port, proxies, tor):
+    def __init__(self, host, port, proxies, chain_n, tor):
         self.host = str(host)
         self.port = int(port)
         self.proxies = proxies
+        self.chain_n = chain_n
         self.tor = tor
         self.version = 5
 
@@ -28,45 +31,103 @@ class Proxy:
                     break
                 
 
-    def connect_2_server(self, conn_type, target, client):
-        try:
-            #Connect to target regarding conn_type
-            if conn_type == 1: #Connect
-                remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                remote.connect((target[0], target[1]))
+    def socks_negotiation(self, remote, target):
+                
+        #First negotiation_message
+        remote.sendall(b'\x05\x01\x00')
 
-                #Get ip and port of the socket
-                bind_address = remote.getsockname()
-            
-            else: 
-                print("Connection closed (conn_type)")
-                client.close()
+        response = remote.recv(2)
+        if response != b'\x05\x00':
+            print("Negotiation with proxy failed")
+            return "", remote
+
+        
+        addr = struct.unpack("!I", socket.inet_aton(target[0]))[0]
+        port = target[1]
+        
+        msg = struct.pack("!BBBBIH", self.version, 1, 0, 1, addr, port)
+        remote.sendall(msg)
+        
+        response = remote.recv(10)
+
+        return response, remote
+        
+                 
+
+    def chain_proxies(self, target):
+        
+        
+        chained = [] 
+        
+        for i in range(0, 200):
+
+            #Select a random proxy of the list
+            proxy_n = random.randint(0, len(self.proxies)-1)
+            proxy = self.proxies[proxy_n]
+
+            #Check if proxy is already chained
+            if proxy in chained:
+                continue
+
+            try:
+                remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+                 
+                if self.chain_n == 0:
+                    #If the chain is set to 0 connect directly to target
+                    remote.connect((target[0], target[1]))
+                    return remote
+                else:
+                    #Connect with the First proxy
+                    remote.connect((proxy[0], proxy[1]))
+
+                #Chain proxies until the limit established in chain_n
+                #Negotiate with socks and connect to the restant proxies
+                while len(chained) < self.chain_n:
+                    #Select a random proxy of the list
+                    proxy_n = random.randint(0, len(self.proxies)-1)
+                    proxy = self.proxies[proxy_n]
+                    #Check if proxy is already chained
+                    if proxy in chained:
+                        continue
+                    
+                    response, remote = self.socks_negotiation(remote, proxy)
+
+                    #Check if the connection with target succeeded and append the new proxy to chained list
+                    if response[0:2] != b'\x05\x00':
+                        continue
+                        
+                    print("{} Chained successfully".format(proxy))
+                    chained.append(proxy)
+                
+                #When all the proxies are Chained connect the last proxy with the target
+                response, remote = self.socks_negotiation(remote, target)
+
+                #If the response is successful, return the remote value of the connection.
+                if response[0:2] == b'\x05\x00':
+                    print("Connected to target: {} successfully through proxies".format(target))
+                    return remote                    
+
+
+
+            except (ConnectionRefusedError, ConnectionResetError, BrokenPipeError, TimeoutError):
+                chained = []
+                print("Connection with the first proxy ended.")
+                
                 
 
 
-            #The server creates the packet to comunicate the success of the target connection.
-            #The packet contains (version, rep_status, _, addr_type(ip), bind_addr, bind_port)
-            
-            #First convert the ip to byte format and then to int format
-            addr = struct.unpack("!I", socket.inet_aton(bind_address[0]))[0]
-            port = bind_address[1]
-
-            reply = struct.pack("!BBBBIH", self.version, 0, 0, 1, addr, port)
-        
-
-        except Exception as err:
-            #Create the packet to comunicate the failure.
-            #The packet contains (version, error_code, _, addr_type(failure), bind_addr(failure), bnd_port(failure))
-            reply = struct.pack("!BBBBIH", self.version, 5, 0, 0, 0, 0)
-
-        
-        #return the reply and the remote connection
-        return reply, remote
-                 
+        print("Limit of chaining trys exceeded")
+        return False                                     
 
 
+    
+    
 
     def handle_client(self, client, addr):
+
+        bind_address = client.getsockname()
+
         #Recieve the header, it contains (socks version, number_of_methods, methods).
         #The client will send the header to specify the supported version and supported methods.
         #Server don't want auth, so it won't save the methods
@@ -89,28 +150,56 @@ class Proxy:
         #address_type 3 --> domain --> recv 1 byte to get the lenght of the domain --> recv the domain
             domain_length = ord(client.recv(1))
             address = client.recv(domain_length).decode()
+            address = socket.gethostbyname(address)
 
         elif address_type == 4: #ipv6
-            pass                #TODO
+            client.close()
+            return False                #TODO
+
+        else:
+            client.close()
+            return False
             
+        
+    
+        
         #Recv 2 bytes and convert them to port
         port = client.recv(2)
         port = struct.unpack('>H', port)[0]
 
         target = [address, port]
+            
 
+        #Connect to target regarding conn_type
+        if conn_type == 1: #Connect using TCP
+            #Establish TCP connection with target through random selected chained proxies
+            #Chain all the proxies and connect to the target
+            remote = self.chain_proxies(target)
 
-        reply, remote = self.connect_2_server(conn_type, target, client)
+            #Store the status of the connection in a packet
+            if remote:
+                #Convert the bind_ip to int format
+                addr = struct.unpack("!I", socket.inet_aton(bind_address[0]))[0]
+                port = bind_address[1]
+                reply = struct.pack("!BBBBIH", self.version, 0, 0, 1, addr, port)
+            else:
+                reply = struct.pack("!BBBBIH", self.version, 5, 0, 1, 0, 0)
 
+        else: 
+            print("Connection closed (conn_type)")
+            client.close()
+            
 
-        #Server sends the packet 
+        
+
+        #Server sends the status packet 
         client.sendall(reply)
        
 
 
         #if both connection succeed, the client and target can start comunicating
         if reply[1] == 0 and conn_type == 1:
-            print("client: {} connected to server: {}".format(addr, target[0]))
+            print("client: {} connected to server: {}".format(target[0], target[1]))
             self.msg_loop(client, remote)
         else:
             print("Connection to target: {} failed".format(target[0]))
@@ -118,7 +207,7 @@ class Proxy:
         
 
         client.close()
-        print("Connection to target: {} ended".format(target[0]))
+        print("Connection with client ended")
         
         
 
@@ -142,6 +231,8 @@ class Proxy:
             #Pass the connection data to the handle_client function in a new thread to handle the client's connection
             c = threading.Thread(target=self.handle_client, args=(conn, addr))
             c.start()
+            #self.handle_client(conn, addr)
+
 
             print("New connection with client: " + str(addr))
 
@@ -149,5 +240,5 @@ class Proxy:
         
 
 if __name__ == '__main__':
-    proxy = Proxy("0.0.0.0", 3000, proxies=False, tor=False)
+    proxy = Proxy("0.0.0.0", 3000, config.proxies, chain_n=0, tor=False)
     proxy.run()
