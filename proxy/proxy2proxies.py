@@ -11,24 +11,28 @@ class Proxy:
         self.tor = tor
         self.version = 5
 
+   
+    def msg_loop(self, client, remote):
+        while True:
+            try:
+                #Whait until there are data to read for client or server
+                r, w, e = select.select([client, remote], [], [])
 
-    def msg_loop(self, conn, remote):
+                if client in r:
+                    data = client.recv(4096)
+                    if remote.send(data) <= 0:
+                        break
 
-        while True: 
-            #Whait until there are data to read for client or server
-            r, w, e = select.select([conn, remote], [], [])
+                if remote in r:
+                    data = remote.recv(4096)
+                    if client.send(data) <= 0:
+                        break
+            
+            except (ConnectionRefusedError, ConnectionResetError, BrokenPipeError, TimeoutError, socket.timeout):
+                break
+            
 
-            if conn in r:
-                data = conn.recv(4096)
-                if remote.send(data) <= 0:
-                    break
-
-            if remote in r:
-                data = remote.recv(4096)
-                if conn.send(data) <= 0:
-                    break
-                
-
+            
     def socks_negotiation(self, remote, target):
                 
         #First negotiation_message
@@ -57,7 +61,7 @@ class Proxy:
         
         chained = [] 
         
-        for i in range(0, 200):
+        for i in range(0, 50):
 
             #Select a random proxy of the list
             proxy_n = random.randint(0, len(self.proxies)-1)
@@ -89,7 +93,7 @@ class Proxy:
                     #Check if proxy is already chained
                     if proxy in chained:
                         continue
-                    
+                                        
                     response, remote = self.socks_negotiation(remote, proxy)
 
                     #Check if the connection with target succeeded and append the new proxy to chained list
@@ -126,6 +130,7 @@ class Proxy:
     def handle_client(self, client, addr):
 
         bind_address = client.getsockname()
+        
 
         #Recieve the header, it contains (socks version, number_of_methods, methods).
         #The client will send the header to specify the supported version and supported methods.
@@ -216,7 +221,7 @@ class Proxy:
         #Create the server socket
         srv_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv_sock.bind((self.host, self.port))
-        srv_sock.listen(100)
+        srv_sock.listen(5)
         
         while True:
             #Accept a client connection.
