@@ -181,12 +181,18 @@ class Proxy:
         
         #Recieve the header, it contains (socks version, number_of_methods, methods).
         #The client will send the header to specify the supported version and supported methods.
-        #Server don't want auth, so it won't save the methods
-        client.recv(3)
+        
+        version, n_methods = client.recv(2)
+
+        #Server don't want auth, so it won't handle the methods
+        methods = client.recv(n_methods)
+
+        
 
         #Based on the client characteristics, the server will send (socks version, method to use) 
         #In this case, the server will send [5(socks5), 0(no authentication)]
         client.sendall(bytes([self.version, 0]))
+
 
         #The client won't send auth, instead, it will send the data of the remote host to connect.
         #The packet will contain [version, conn_type, _, address_type(ip, Domain...), target_addr, target_port]
